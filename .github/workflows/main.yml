@@ -1,0 +1,63 @@
+name: Build Kernel for Dagu (Mi Pad 5 Pro 12.4)
+on:
+  workflow_dispatch: # 手动触发
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Install Dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential clang llvm libssl-dev bc bison flex python3 zip ccache
+
+      - name: Cache CCache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-dagu-${{ github.sha }}
+          restore-keys: ccache-dagu-
+
+      - name: Build Kernel (HyperOS 2)
+        run: |
+          export CCACHE_DIR=~/.ccache
+          export USE_CCACHE=1
+          ./build.sh dagu hyperos
+
+      - name: Package AnyKernel3
+        run: |
+          git clone https://github.com/osm0sis/AnyKernel3.git --depth=1
+          cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
+          cp out/arch/arm64/boot/dtbo.img AnyKernel3/
+          
+          # 写入dagu专属配置
+          cat > AnyKernel3/anykernel.sh << 'EOF'
+          # AnyKernel3 Configuration for Xiaomi Mi Pad 5 Pro 12.4 (dagu)
+          kernel.string=liyafe1997 Kernel for Dagu (HyperOS 2)
+          block=/dev/block/bootdevice/by-name/boot
+          is_slot_device=0
+          ramdisk_compression=auto
+          patch_vbmeta_flag=disable
+          EOF
+          
+          # 打包成zip
+          cd AnyKernel3
+          zip -r9 ../dagu-kernel-$(date +%Y%m%d).zip *
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dagu-kernel-${{ github.sha }}
+          path: dagu-kernel-*.zip
+          retention-days: 30
